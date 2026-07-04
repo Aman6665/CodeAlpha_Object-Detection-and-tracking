@@ -1,0 +1,131 @@
+import cv2
+import time
+import numpy as np
+from ultralytics import YOLO
+from collections import defaultdict
+
+# -------------------------------
+# Load YOLO Model
+# -------------------------------
+model = YOLO("yolov8n.pt")
+
+# -------------------------------
+# Video Source (0 = webcam)
+# -------------------------------
+cap = cv2.VideoCapture(0)
+
+# -------------------------------
+# FPS Calculation
+# -------------------------------
+prev_time = 0
+
+# -------------------------------
+# Object Counter
+# -------------------------------
+object_counter = defaultdict(int)
+
+# -------------------------------
+# Video Writer (Save Output)
+# -------------------------------
+fourcc = cv2.VideoWriter_fourcc(*'XVID')
+out = cv2.VideoWriter("output.avi", fourcc, 20.0, (640, 480))
+
+# -------------------------------
+# Colors for boxes
+# -------------------------------
+colors = {}
+
+def get_color(id):
+    if id not in colors:
+        colors[id] = tuple(np.random.randint(0, 255, 3).tolist())
+    return colors[id]
+
+print("Press Q to quit, S to screenshot")
+
+frame_id = 0
+
+while True:
+    ret, frame = cap.read()
+    if not ret:
+        break
+
+    frame = cv2.resize(frame, (640, 480))
+
+    # -------------------------------
+    # YOLO Tracking
+    # -------------------------------
+    results = model.track(frame, persist=True, conf=0.5)
+
+    if results[0].boxes.id is not None:
+        boxes = results[0].boxes.xyxy.cpu().numpy().astype(int)
+        ids = results[0].boxes.id.cpu().numpy().astype(int)
+        classes = results[0].boxes.cls.cpu().numpy().astype(int)
+
+        for box, obj_id, cls in zip(boxes, ids, classes):
+
+            x1, y1, x2, y2 = box
+            label = model.names[cls]
+
+            color = get_color(obj_id)
+
+            # Draw bounding box
+            cv2.rectangle(frame, (x1, y1), (x2, y2), color, 2)
+
+            # Label text
+            text = f"{label} ID:{obj_id}"
+            cv2.putText(frame, text, (x1, y1 - 10),
+                        cv2.FONT_HERSHEY_SIMPLEX, 0.5, color, 2)
+
+            # Count objects
+            object_counter[label] += 1
+
+    # -------------------------------
+    # FPS Calculation
+    # -------------------------------
+    curr_time = time.time()
+    fps = 1 / (curr_time - prev_time) if prev_time != 0 else 0
+    prev_time = curr_time
+
+    cv2.putText(frame, f"FPS: {int(fps)}", (10, 20),
+                cv2.FONT_HERSHEY_SIMPLEX, 0.6, (0, 255, 0), 2)
+
+    # -------------------------------
+    # Show counts
+    # -------------------------------
+    y_offset = 50
+    for k, v in object_counter.items():
+        cv2.putText(frame, f"{k}: {v}", (10, y_offset),
+                    cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 2)
+        y_offset += 20
+
+    # -------------------------------
+    # Save video
+    # -------------------------------
+    out.write(frame)
+
+    # -------------------------------
+    # Show frame
+    # -------------------------------
+    cv2.imshow("Advanced Object Tracking", frame)
+
+    key = cv2.waitKey(1) & 0xFF
+
+    # Quit
+    if key == ord('q'):
+        break
+
+    # Screenshot
+    if key == ord('s'):
+        cv2.imwrite(f"screenshot_{frame_id}.jpg", frame)
+        print("Screenshot saved!")
+        frame_id += 1
+
+# -------------------------------
+# Cleanup
+# -------------------------------
+cap.release()
+out.release()
+cv2.destroyAllWindows()
+
+print("Program Ended Successfully")
+print("Video saved as output.avi")
